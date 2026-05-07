@@ -21,10 +21,11 @@ class ReLU(Activation):
         # we take gradient at dL/dh(k)
         # we calculate DH(k) / DA(k) 
         shape = self.input.shape
-        grad = np.zeros(shape, shape)
+        grad = np.zeros((shape[0], shape[0]))
         
         for i in range(len(self.input)):
-            grad[i][i] = self.input[i] if self.input[i] > 0 else 0
+            # grad[i][i] = self.input[i] if self.input[i] > 0 else 0
+            grad[i][i] = 1 if self.input[i] > 0 else 0
 
         return np.matmul(grad, gradient)
 
@@ -52,7 +53,7 @@ class Softmax(Activation):
                     grad[i][j] = - self.exp_x[i] * self.exp_x[j]
                 else:
                     grad[i][i] = self.exp_x[i] * (1 - self.exp_x[i])
-        return grad
+        return np.matmul(grad, gradient)
 
 
 class CrossEntropyLoss:
@@ -64,8 +65,7 @@ class CrossEntropyLoss:
 
     def backward(self):
         fx_y = np.dot(self.pred, self.y)
-        return -fx_y * self.y
-
+        return -self.y / fx_y
 
 
 class Dense:
@@ -74,7 +74,7 @@ class Dense:
         self.bias = np.zeros((out_features, 1))
 
         self.dweights = None
-        self.bias = None
+        self.dbias = None
     
     def forward(self, x):
         # x -> (d, 1) for now, 
@@ -88,8 +88,8 @@ class Dense:
 
         return_grad = np.matmul(grad, gradient)
 
-        self.dweights = (np.matmul(self.h_prev,  return_grad.T)).T
-        self.dbias = return_grad
+        self.dweights = (np.matmul(self.h_prev,  gradient.T)).T
+        self.dbias = gradient
         return return_grad
 
 class SGD:
@@ -112,7 +112,7 @@ class NeuralNetwork:
 
 
     def add(self, neuron, act):
-        self.layers.append([nn, act])
+        self.layers.append([neuron, act])
     
 
     def compile(self, loss_function, optimizer):
@@ -124,7 +124,7 @@ class NeuralNetwork:
         # x -> (d, 1)
         output = x
         for layer in self.layers:
-            output = layer[1].forward(layer[0].forward(x))
+            output = layer[1].forward(layer[0].forward(output))
         return output
     
     def backward(self, dout):
@@ -148,7 +148,7 @@ class NeuralNetwork:
         gradient = self.loss_function.backward()
 
         self.backward(gradient)
-        self.update_weights
+        self.update()
         return loss, pred
     
     def pred(self, x):
