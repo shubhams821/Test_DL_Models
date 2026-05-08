@@ -45,14 +45,15 @@ class Softmax(Activation):
         # we calculate DH(k) / DA(k) 
 
         shape = self.input.shape
-        grad = np.zeros(shape, shape)
+        # print(shape)
+        grad = np.zeros((shape[0], shape[0]))
 
         for i in range(len(self.input)):
             for j in range(len(self.input)):
                 if i != j:
-                    grad[i][j] = - self.exp_x[i] * self.exp_x[j]
+                    grad[i][j] = - self.exp_x[i,0] * self.exp_x[j,0]
                 else:
-                    grad[i][i] = self.exp_x[i] * (1 - self.exp_x[i])
+                    grad[i][i] = self.exp_x[i,0] * (1 - self.exp_x[i,0])
         return np.matmul(grad, gradient)
 
 
@@ -60,11 +61,13 @@ class CrossEntropyLoss:
     def forward(self, pred, y):
         self.pred = pred
         self.y = y
-
-        return -np.log(np.dot(pred, y))
+        # print(pred, y, pred.shape, y.shape)
+        # print(np.matmul(pred.T, y)[0][0])
+        return -np.log(np.matmul(pred.T, y)[0][0])
 
     def backward(self):
-        fx_y = np.dot(self.pred, self.y)
+        # print()
+        fx_y = np.matmul(self.pred.T, self.y)[0][0]
         return -self.y / fx_y
 
 
@@ -79,6 +82,8 @@ class Dense:
     def forward(self, x):
         # x -> (d, 1) for now, 
         self.h_prev = x
+
+        # print(x.shape, self.weights.shape, self.bias.shape)
         a = np.matmul(self.weights, x) + self.bias
         return a
     
@@ -158,7 +163,28 @@ class NeuralNetwork:
 
 
 
+if __name__ == "__main__":
+    
+    dim = 768
+    x = np.random.randn(dim, 1)
+    y = np.array([0, 1]).reshape(2,1)
+    nn = NeuralNetwork()
+    layer1 = Dense(dim, 384)
+    act = ReLU()
+    nn.add(layer1, act)
+    layer2 = Dense(384, 128)
+    act = ReLU()
+    nn.add(layer2, act)
+    layer3 = Dense(128, 2)
+    act = Softmax()
+    nn.add(layer3, act)
 
+    nn.compile(loss_function= CrossEntropyLoss(), optimizer= SGD())
+    
+
+    for i in range(10):
+        loss, pred = nn.train(x, y)
+        print(loss, pred.reshape(1,2))
 
 
 
