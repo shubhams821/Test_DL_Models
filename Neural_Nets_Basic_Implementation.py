@@ -101,18 +101,24 @@ class Softmax(Activation):
 
 class CrossEntropyLoss:
     def forward(self, pred, y):
-        self.pred = pred
+        # Clamp predictions to avoid log(0) which causes underflow/NaN explosions
+        self.pred = np.clip(pred, 1e-15, 1.0 - 1e-15)
         self.y = y
-        # print(pred, y, pred.shape, y.shape)
-        # print(np.matmul(pred.T, y)[0][0])
-        return -np.log(np.matmul(pred.T, y)[0][0])
+        
+        # 1. Sum across classes (axis=0) to compute the loss per sample
+        # shape of (self.y * np.log(self.pred)) is (classes, batch)
+        loss_per_sample = -np.sum(self.y * np.log(self.pred), axis=0)
+        # print("Cross-entropy loss: ", loss_per_sample.shape, (self.y * np.log(self.pred)).shape)
+        
+        # 2. Return the average loss across the mini-batch
+        return np.mean(loss_per_sample)
 
     def backward(self):
-        # print("*"*100)
-        # print("CrossEntropyLoss: input- pred, y", self.pred.shape, self.y.shape)
-        # print("*"*100)
-        fx_y = np.matmul(self.pred.T, self.y)[0][0]
-        return -self.y / fx_y
+        # The mathematical gradient of Cross Entropy with respect to predictions (dL/d_pred)
+        # We divide by the batch size to match the np.mean() scaling applied in the forward pass
+        batch_size = self.y.shape[1]
+        # print(-(self.y / self.pred) / batch_size)
+        return -(self.y / self.pred) / batch_size
 
 
 class Dense:
