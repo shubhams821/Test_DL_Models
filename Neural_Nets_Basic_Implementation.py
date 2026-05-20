@@ -1,14 +1,10 @@
-
-
-
-
 import numpy as np
 from typing import List, Tuple
 
 class Activation:
     def forward(self, x):
         raise NotImplementedError
-    
+
     def backward(self, dout):
         raise NotImplementedError
 
@@ -19,41 +15,76 @@ class ReLU(Activation):
 
     def backward(self, gradient):
         # we take gradient at dL/dh(k)
-        # we calculate DH(k) / DA(k) 
-        shape = self.input.shape
-        grad = np.zeros((shape[0], shape[0]))
+        # we calculate DH(k) / DA(k)
         
-        for i in range(len(self.input)):
-            # grad[i][i] = self.input[i] if self.input[i] > 0 else 0
-            grad[i][i] = 1 if self.input[i] > 0 else 0
 
+        # self.input shape is (features, batch_size) -> (128, 2)
+        f, b = self.input.shape
+        
+        # 1. Compute element-wise local gradients
+        local_grad = np.where(self.input > 0, 1.0, 1e-5) # Shape: (128, 2)
+
+        # 2. Initialize a 3D tensor of shape (batch_size, features, features)
+        # This creates an individual Jacobian matrix for every sample in the batch
+        grad_tensor = np.zeros((b, f, f)) # Shape: (2, 128, 128)
+        
+        # 3. Use advanced indexing to fill the diagonal of each batch slice
+        idx = np.arange(f)
+        # local_grad.T changes shape to (2, 128) to map correctly to the batch slices
+        grad_tensor[:, idx, idx] = local_grad.T
+
+        # Take the sum across the batch dimension if needed
+        grad = np.sum(grad_tensor, axis=0)
+        print("*"*100)
+        print("RELU grad_tensor, local_grad shape :", grad_tensor.shape, local_grad.shape)
+        print("input gradient shape: ", gradient.shape)
+        print("RELU: input", self.input.shape)
+        print("RELU: grad", grad.shape)
+        print("RELU: output grad shape: ", np.matmul(grad, gradient).shape)
+        print("*"*100)
         return np.matmul(grad, gradient)
 
 
 class Softmax(Activation):
     def forward(self, x):
-        self.input = x
-        exp_x = np.exp(x)
-        norm = np.sum(exp_x, axis = 0)
+        # Numerical stability trick: subtract max to prevent overflow
+        shift_x = x - np.max(x, axis=0, keepdims=True)
+        self.input = shift_x
+        exp_x = np.exp(shift_x)
+        norm = np.sum(exp_x, axis=0, keepdims=True)
 
-        exp_x = exp_x/norm
-        self.exp_x = exp_x
+        exp_x = exp_x / norm
+        self.exp_x = exp_x  # Shape: (features, batch_size) -> (2, 2)
         return exp_x
-    
+
     def backward(self, gradient):
-        # we take gradient at dL/dh(k)
-        # we calculate DH(k) / DA(k) 
+        # self.exp_x shape is (features, batch_size) -> (2, 2)
+        f, b = self.exp_x.shape
+        
+        # 1. Initialize a 3D tensor of shape (batch_size, features, features)
+        grad_tensor = np.zeros((b, f, f)) # Shape: (2, 2, 2)
 
-        shape = self.input.shape
-        # print(shape)
-        grad = np.zeros((shape[0], shape[0]))
+        # 2. Vectorized Softmax Jacobian for each item in the batch
+        # For a batch item 'b', the entry (i,j) is:
+        # diag(S) - S * S.T
+        for batch_idx in range(b):
+            s = self.exp_x[:, batch_idx].reshape(-1, 1) # Shape: (features, 1)
+            # Outer product gives the S_i * S_j matrix terms
+            # np.diagflat(s) sets up the S_i * (1 - S_i) terms on the diagonal
+            grad_tensor[batch_idx] = np.diagflat(s) - np.matmul(s, s.T)
 
-        for i in range(len(self.input)):
-            for j in range(len(self.input)):
-                if i != j:
-                    grad[i][j] = - self.exp_x[i,0] * self.exp_x[j,0]
-                else:
-                    grad[i][i] = self.exp_x[i,0] * (1 - self.exp_x[i,0])
+        # 3. Sum across the batch dimension (axis=0) to get the final Jacobian
+        grad = np.sum(grad_tensor, axis=0) # Shape: (2, 2)
+
+        print("*"*100)
+        print("Softmax grad_tensor shape :", grad_tensor.shape)
+        print("input gradient shape: ", gradient.shape) # Shape: (2, 2)
+        print("Softmax: input", self.input.shape)       # Shape: (2, 2)
+        print("Softmax: grad", grad.shape)              # Shape: (2, 2)
+        print("Softmax: output grad shape: ", np.matmul(grad, gradient).shape) # Shape: (2, 2)
+        print("*"*100)
+
+        # (2, 2) matmul (2, 2) -> outputs (2, 2)
         return np.matmul(grad, gradient)
 
 
@@ -66,7 +97,9 @@ class CrossEntropyLoss:
         return -np.log(np.matmul(pred.T, y)[0][0])
 
     def backward(self):
-        # print()
+        print("*"*100)
+        print("CrossEntropyLoss: input- pred, y", self.pred.shape, self.y.shape)
+        print("*"*100)
         fx_y = np.matmul(self.pred.T, self.y)[0][0]
         return -self.y / fx_y
 
@@ -78,15 +111,15 @@ class Dense:
 
         self.dweights = None
         self.dbias = None
-    
+
     def forward(self, x):
-        # x -> (d, 1) for now, 
+        # x -> (d, 1) for now,
         self.h_prev = x
 
         # print(x.shape, self.weights.shape, self.bias.shape)
         a = np.matmul(self.weights, x) + self.bias
         return a
-    
+
     def backward(self, gradient):
 
         grad = self.weights.T
@@ -94,7 +127,14 @@ class Dense:
         return_grad = np.matmul(grad, gradient)
 
         self.dweights = (np.matmul(self.h_prev,  gradient.T)).T
-        self.dbias = gradient
+        self.dbias = np.sum(gradient, axis = -1).reshape(self.bias.shape)
+        print("*"*100)
+        print("input shape: ", x.shape)
+        print("input gradient shape: ", gradient.shape)
+        print("weights, bias shape: ", self.weights.shape, self.bias.shape)
+        print("dweights, dbias shape: ", self.dweights.shape, self.dbias.shape)
+        print("grad, return grad shape: ", grad.shape, return_grad.shape)
+        print("*"*100)
         return return_grad
 
 class SGD:
@@ -118,7 +158,7 @@ class NeuralNetwork:
 
     def add(self, neuron, act):
         self.layers.append([neuron, act])
-    
+
 
     def compile(self, loss_function, optimizer):
         self.loss_function = loss_function
@@ -131,7 +171,7 @@ class NeuralNetwork:
         for layer in self.layers:
             output = layer[1].forward(layer[0].forward(output))
         return output
-    
+
     def backward(self, dout):
 
 
@@ -140,7 +180,7 @@ class NeuralNetwork:
             grad1 = layer[1].backward(gradient)
             grad2 = layer[0].backward(grad1)
             gradient = grad2
-        
+
         return gradient
 
     def update(self):
@@ -155,7 +195,7 @@ class NeuralNetwork:
         self.backward(gradient)
         self.update()
         return loss, pred
-    
+
     def pred(self, x):
         return self.forward(x)
 
@@ -164,10 +204,10 @@ class NeuralNetwork:
 
 
 if __name__ == "__main__":
-    
+
     dim = 768
-    x = np.random.randn(dim, 1)
-    y = np.array([0, 1]).reshape(2,1)
+    x = np.random.randn(dim, 3)
+    y = np.array([[0, 1],[0,1], [0,1]]).reshape(2,3)
     nn = NeuralNetwork()
     layer1 = Dense(dim, 384)
     act = ReLU()
@@ -180,12 +220,11 @@ if __name__ == "__main__":
     nn.add(layer3, act)
 
     nn.compile(loss_function= CrossEntropyLoss(), optimizer= SGD())
-    
+
 
     for i in range(10):
         loss, pred = nn.train(x, y)
-        print(loss, pred.reshape(1,2))
-
+        print(loss, pred)
 
 
 
