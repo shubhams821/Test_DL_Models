@@ -34,15 +34,21 @@ class ReLU(Activation):
         grad_tensor[:, idx, idx] = local_grad.T
 
         # Take the sum across the batch dimension if needed
-        grad = np.sum(grad_tensor, axis=0)
-        print("*"*100)
-        print("RELU grad_tensor, local_grad shape :", grad_tensor.shape, local_grad.shape)
-        print("input gradient shape: ", gradient.shape)
-        print("RELU: input", self.input.shape)
-        print("RELU: grad", grad.shape)
-        print("RELU: output grad shape: ", np.matmul(grad, gradient).shape)
-        print("*"*100)
-        return np.matmul(grad, gradient)
+        grad = np.sum(grad_tensor, axis=0) # Shape: (2, 2)
+        out_grad_stack = [None for i in range(b)]
+        for idx in range(b):
+            out_grad_stack[idx] = np.matmul(grad_tensor[idx], gradient[:, idx])
+        
+
+        final_output_grad = np.stack(out_grad_stack, axis=1)
+        # print("*"*100)
+        # print("RELU grad_tensor, local_grad shape :", grad_tensor.shape, local_grad.shape)
+        # print("input gradient shape: ", gradient.shape)
+        # print("RELU: input", self.input.shape)
+        # print("RELU: grad", grad.shape)
+        # print("RELU: output grad shape: ", final_output_grad.shape)
+        # print("*"*100)
+        return final_output_grad
 
 
 class Softmax(Activation):
@@ -75,17 +81,22 @@ class Softmax(Activation):
 
         # 3. Sum across the batch dimension (axis=0) to get the final Jacobian
         grad = np.sum(grad_tensor, axis=0) # Shape: (2, 2)
+        out_grad_stack = [None for i in range(b)]
+        for idx in range(b):
+            out_grad_stack[idx] = np.matmul(grad_tensor[idx], gradient[:, idx])
+        
 
-        print("*"*100)
-        print("Softmax grad_tensor shape :", grad_tensor.shape)
-        print("input gradient shape: ", gradient.shape) # Shape: (2, 2)
-        print("Softmax: input", self.input.shape)       # Shape: (2, 2)
-        print("Softmax: grad", grad.shape)              # Shape: (2, 2)
-        print("Softmax: output grad shape: ", np.matmul(grad, gradient).shape) # Shape: (2, 2)
-        print("*"*100)
+        final_output_grad = np.stack(out_grad_stack, axis=1)
 
-        # (2, 2) matmul (2, 2) -> outputs (2, 2)
-        return np.matmul(grad, gradient)
+        # print("*"*100)
+        # print("Softmax grad_tensor shape :", grad_tensor.shape)       # (batch_size, features, features)
+        # print("input gradient shape: ", gradient.shape)               # (features, batch_size)
+        # print("Softmax: input", self.input.shape)                    # (features, batch_size)
+        # print("Softmax: output grad shape: ", final_output_grad.shape) # (features, batch_size)
+        # print("*"*100)
+
+        # FIX 2: Return the isolated, properly aligned matrix instead of the sum math
+        return final_output_grad
 
 
 class CrossEntropyLoss:
@@ -97,9 +108,9 @@ class CrossEntropyLoss:
         return -np.log(np.matmul(pred.T, y)[0][0])
 
     def backward(self):
-        print("*"*100)
-        print("CrossEntropyLoss: input- pred, y", self.pred.shape, self.y.shape)
-        print("*"*100)
+        # print("*"*100)
+        # print("CrossEntropyLoss: input- pred, y", self.pred.shape, self.y.shape)
+        # print("*"*100)
         fx_y = np.matmul(self.pred.T, self.y)[0][0]
         return -self.y / fx_y
 
@@ -128,13 +139,13 @@ class Dense:
 
         self.dweights = (np.matmul(self.h_prev,  gradient.T)).T
         self.dbias = np.sum(gradient, axis = -1).reshape(self.bias.shape)
-        print("*"*100)
-        print("input shape: ", x.shape)
-        print("input gradient shape: ", gradient.shape)
-        print("weights, bias shape: ", self.weights.shape, self.bias.shape)
-        print("dweights, dbias shape: ", self.dweights.shape, self.dbias.shape)
-        print("grad, return grad shape: ", grad.shape, return_grad.shape)
-        print("*"*100)
+        # print("*"*100)
+        # print("input shape: ", x.shape)
+        # print("input gradient shape: ", gradient.shape)
+        # print("weights, bias shape: ", self.weights.shape, self.bias.shape)
+        # print("dweights, dbias shape: ", self.dweights.shape, self.dbias.shape)
+        # print("grad, return grad shape: ", grad.shape, return_grad.shape)
+        # print("*"*100)
         return return_grad
 
 class SGD:
@@ -203,11 +214,24 @@ class NeuralNetwork:
 
 
 
+
 if __name__ == "__main__":
 
     dim = 768
-    x = np.random.randn(dim, 3)
-    y = np.array([[0, 1],[0,1], [0,1]]).reshape(2,3)
+    batch = 4
+    x = np.random.randn(dim, batch)
+    # 1. Randomly choose the number of classes between 2 and 10
+    # classes = np.random.randint(2, 11)
+    classes = 20
+    
+    # 2. Generate random true class indices for each sample in the batch
+    # Example for batch=6: array([2, 0, 5, 1, 2, 4])
+    random_classes = np.random.randint(0, classes, size=batch)
+    
+    # 3. Create a One-Hot Encoded matrix of shape (classes, batch)
+    y = np.zeros((classes, batch))
+    y[random_classes, np.arange(batch)] = 1.0
+
     nn = NeuralNetwork()
     layer1 = Dense(dim, 384)
     act = ReLU()
@@ -215,7 +239,7 @@ if __name__ == "__main__":
     layer2 = Dense(384, 128)
     act = ReLU()
     nn.add(layer2, act)
-    layer3 = Dense(128, 2)
+    layer3 = Dense(128, classes)
     act = Softmax()
     nn.add(layer3, act)
 
@@ -224,9 +248,7 @@ if __name__ == "__main__":
 
     for i in range(10):
         loss, pred = nn.train(x, y)
-        print(loss, pred)
-
-
+        print(loss)
 
 
 
