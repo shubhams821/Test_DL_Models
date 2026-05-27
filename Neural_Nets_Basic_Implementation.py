@@ -1,4 +1,7 @@
 import numpy as np
+from sklearn.datasets import fetch_openml
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import StandardScaler
 from typing import List, Tuple, Optional
 
 
@@ -171,7 +174,7 @@ class NeuralNetwork:
         self.update()
         return loss, pred
 
-    def pred(self, x):
+    def predict(self, x):
         return self.forward(x)
 
 
@@ -181,66 +184,146 @@ class NeuralNetwork:
 
 
 
+
+
+def create_batches(x, y, batch_size):
+    """Create mini-batches for training"""
+    indices = np.arange(x.shape[0])
+    np.random.shuffle(indices)
+
+    for start_idx in range(0, x.shape[0] - batch_size + 1, batch_size):
+        batch_indices = indices[start_idx:start_idx + batch_size]
+        yield x[batch_indices], y[batch_indices]
+
+
+def one_hot_encode(y, num_classes):
+    """Convert integer labels to one-hot encoding"""
+    one_hot = np.zeros((y.shape[0], num_classes))
+    one_hot[np.arange(y.shape[0]), y] = 1
+    return one_hot
+
+
+def calculate_accuracy(predictions, y_true):
+    """Calculate classification accuracy"""
+    pred_labels = np.argmax(predictions, axis=1)
+    true_labels = np.argmax(y_true, axis=1)
+    return np.mean(pred_labels == true_labels)
+
+
+# ============================================================================
+# MNIST TRAINING
+# ============================================================================
+
+def load_mnist():
+    """Load and preprocess MNIST dataset"""
+    print("Loading MNIST dataset...")
+
+    # Load MNIST from sklearn
+    mnist = fetch_openml('mnist_784', version=1, parser='auto')
+    x, y = mnist.data.values, mnist.target.values.astype(int)
+
+    # Normalize pixel values to [0, 1]
+    x = x / 255.0
+
+    # Split into train and test sets
+    x_train, x_test, y_train, y_test = train_test_split(
+        x, y, test_size=0.2, random_state=42
+    )
+
+    # One-hot encode labels
+    y_train_onehot = one_hot_encode(y_train, 10)
+    y_test_onehot = one_hot_encode(y_test, 10)
+
+    print(f"Training samples: {x_train.shape[0]}")
+    print(f"Test samples: {x_test.shape[0]}")
+    print(f"Input shape: {x_train.shape[1]}")
+
+    return x_train, y_train_onehot, x_test, y_test_onehot
+
+
+def train_mnist():
+    """Train neural network on MNIST"""
+
+    # Load data
+    x_train, y_train, x_test, y_test = load_mnist()
+
+    # Build network architecture
+    # Input(784) -> Dense(128) -> ReLU -> Dense(64) -> ReLU -> Dense(10) -> Softmax
+    print("\nBuilding Neural Network...")
+    model = NeuralNetwork()
+
+    model.add(Dense(784, 128))
+    model.add(ReLU())
+    model.add(Dense(128, 64))
+    model.add(ReLU())
+    model.add(Dense(64, 10))
+    model.add(Softmax())
+
+    # Compile model
+    model.compile(
+        loss_function= CrossEntropyLoss(), optimizer= SGD()
+    )
+
+    print("Architecture:")
+    print("  Input(784) -> Dense(128) -> ReLU")
+    print("  Dense(128) -> Dense(64) -> ReLU")
+    print("  Dense(64) -> Dense(10) -> Softmax")
+    print(f"  Optimizer: SGD(lr=0.1)")
+
+    # Training parameters
+    epochs = 10
+    batch_size = 128
+
+    print(f"\nTraining for {epochs} epochs with batch size {batch_size}...")
+    print("=" * 70)
+
+    # Training loop
+    for epoch in range(epochs):
+        epoch_losses = []
+        epoch_accuracies = []
+
+        # Train on batches
+        for x_batch, y_batch in create_batches(x_train, y_train, batch_size):
+            loss, predictions = model.train(x_batch, y_batch)
+            epoch_losses.append(loss)
+            epoch_accuracies.append(calculate_accuracy(predictions, y_batch))
+
+        # Calculate average metrics
+        avg_loss = np.mean(epoch_losses)
+        avg_accuracy = np.mean(epoch_accuracies)
+
+        # Evaluate on test set
+        test_predictions = model.predict(x_test)
+        test_accuracy = calculate_accuracy(test_predictions, y_test)
+
+        # Print progress
+        print(f"Epoch {epoch + 1}/{epochs}")
+        print(f"  Train Loss: {avg_loss:.4f} | Train Acc: {avg_accuracy:.4f}")
+        print(f"  Test Acc: {test_accuracy:.4f}")
+        print("-" * 70)
+
+    print("\nTraining completed!")
+    print("=" * 70)
+
+    # Final evaluation
+    final_predictions = model.predict(x_test)
+    final_accuracy = calculate_accuracy(final_predictions, y_test)
+    print(f"\nFinal Test Accuracy: {final_accuracy:.4f}")
+
+    return model
+
+
+# ============================================================================
+# MAIN EXECUTION
+# ============================================================================
+
 if __name__ == "__main__":
+    print("=" * 70)
+    print("NEURAL NETWORK FROM SCRATCH - MNIST CLASSIFICATION")
+    print("=" * 70)
 
-    dim = 768
-    batch = 4
-    x = np.random.randn(batch, dim)
-    # 1. Randomly choose the number of classes between 2 and 10
-    # classes = np.random.randint(2, 11)
-    classes = 5
-    
-    # 2. Generate random true class indices for each sample in the batch
-    # Example for batch=6: array([2, 0, 5, 1, 2, 4])
-    random_classes = np.random.randint(0, classes, size=batch)
-    
-    # 3. Create a One-Hot Encoded matrix of shape (classes, batch)
-    y = np.zeros((batch, classes))
-    y[np.arange(batch), random_classes] = 1.0
-
-    nn = NeuralNetwork()
-    layer1 = Dense(dim, 384)
-    act = ReLU()
-    nn.add(layer1)
-    nn.add(act)
-    layer2 = Dense(384, 128)
-    act = ReLU()
-    nn.add(layer2)
-    nn.add(act)
-    layer3 = Dense(128, classes)
-    act = Softmax()
-    nn.add(layer3)
-    nn.add(act)
-
-    nn.compile(loss_function= CrossEntropyLoss(), optimizer= SGD())
-
-
-    for i in range(10):
-        loss, pred = nn.train(x, y)
-        print(loss)
-
-
-
-# Output:
-"""2.7549547211140766
-0.3756417865347026
-0.17290348720843413
-0.11864403749191667
-0.09270506140443835
-0.0763337030371557
-0.06505767524625138
-0.056719764488103314
-0.05028133139734109
-0.045231349149403265"""
-
-
-# pred * y ->
-
-"""array([[0.        , 0.95348158, 0.        , 0.        , 0.        ],
-       [0.        , 0.        , 0.        , 0.        , 0.96102103],
-       [0.        , 0.        , 0.        , 0.95644635, 0.        ],
-       [0.        , 0.        , 0.        , 0.9521805 , 0.        ]])"""
-
+    # Train the model
+    model = train_mnist()
 
 
 
